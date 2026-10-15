@@ -9,11 +9,11 @@ from sklearn.metrics import accuracy_score, precision_score, f1_score
 from nlp_pipeline import limpiar_texto # Importamos la limpieza que hicimos en la Fase 2
 
 def entrenar_modelos():
-    print("1. Cargando el dataset de Amazon...")
-    df = pd.read_json("dataset/train.jsonl", lines=True)
+    print("1. Cargando el Dataset Híbrido Definitivo (Sintético IA + Ott Traducido)...")
+    df = pd.read_csv("dataset/dataset_tesis_definitivo.csv")
     
-    # pruebas iniciales, muestra de 5000 reseñas.
-    df = df.sample(n=5000, random_state=42).reset_index(drop=True)
+    # Como tenemos 8,000 reseñas, podemos entrenar con todas en minutos.
+    # df = df.sample(n=5000, random_state=42).reset_index(drop=True)
     print(f"Total de reseñas a procesar (muestra): {len(df)}")
     
     print("2. Aplicando limpieza NLP (esto puede tardar unos minutos por la lematización)...")

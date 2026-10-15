@@ -1,2 +1,4 @@
 dataset/IMDB Dataset SPANISH.csv
 __pycache__/
+*.pyc
+venv/
