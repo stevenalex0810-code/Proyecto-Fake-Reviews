@@ -1,5 +1,5 @@
 """Interfaz Flask para el modelo SVM de detección de reseñas."""
-
+import os
 import logging
 import sys
 from datetime import datetime
@@ -21,16 +21,26 @@ MODEL_PATH = PROJECT_DIR / "modelo_svm.pkl"
 VECTORIZER_PATH = PROJECT_DIR / "vectorizador.pkl"
 
 app = Flask(__name__)
-app.secret_key = 'clave-secreta-prototipo'
+
+app.secret_key = os.environ.get("FLASK_SECRET_KEY")
+
+if not app.secret_key:
+    raise RuntimeError("Falta configurar FLASK_SECRET_KEY")
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
+APP_USERNAME = os.environ.get("APP_USERNAME")
+APP_PASSWORD = os.environ.get("APP_PASSWORD")
+
+if not APP_USERNAME or not APP_PASSWORD:
+    raise RuntimeError("Faltan las credenciales de acceso")
+
 USUARIOS = {
-    'admin': generate_password_hash('1234'),
-    'demo':  generate_password_hash('demo'),
+    APP_USERNAME: generate_password_hash(APP_PASSWORD)
 }
-HISTORIAL = { u: [] for u in USUARIOS }
+
+HISTORIAL = {u: [] for u in USUARIOS}
 
 
 class Usuario(UserMixin):
@@ -158,9 +168,6 @@ LOGIN_HTML = """<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
   <label>Contraseña</label><input type="password" id="pwd" placeholder="••••••••">
   <div id="err" class="error" style="display:none">Usuario o contraseña incorrectos.</div>
   <button class="btn" onclick="login()">INICIAR SESIÓN →</button>
-  <p style="margin-top:14px;font-size:.8rem;color:var(--muted);font-family:'Space Mono',monospace;">
-    Usuarios: <b style="color:var(--accent)">admin / 1234</b> · <b style="color:var(--accent)">demo / demo</b>
-  </p>
 </div>
 <script>
   async function login(){
