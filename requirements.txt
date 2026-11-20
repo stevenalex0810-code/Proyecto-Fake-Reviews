@@ -1,0 +1,8 @@
+joblib
+pandas
+# Keep this aligned with the SVM artifacts generated for Python 3.10.
+scikit-learn==1.7.2
+spacy
+streamlit
+Flask
+Flask-Login

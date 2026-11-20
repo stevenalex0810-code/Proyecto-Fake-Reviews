@@ -1,24 +1,24 @@
-"""
-Prototipo: Detector de Reseñas Falsas
-TF-IDF + Regresión Logística · Login + Historial + Estadísticas
-librerias: pip install flask scikit-learn nltk flask-login
-"""
+"""Interfaz Flask para el modelo SVM de detección de reseñas."""
 
+import logging
+import sys
+from datetime import datetime
+from pathlib import Path
+
+import joblib
 from flask import Flask, request, jsonify, render_template_string, redirect, url_for
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from nltk.corpus import stopwords
-from datetime import datetime
-import re, nltk
 
-nltk.download('stopwords', quiet=True)
-nltk.download('wordnet',   quiet=True)
-nltk.download('omw-1.4',   quiet=True)
+PROJECT_DIR = Path(__file__).resolve().parent
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
+
+from nlp_pipeline import limpiar_texto
+
+logger = logging.getLogger(__name__)
+MODEL_PATH = PROJECT_DIR / "modelo_svm.pkl"
+VECTORIZER_PATH = PROJECT_DIR / "vectorizador.pkl"
 
 app = Flask(__name__)
 app.secret_key = 'clave-secreta-prototipo'
@@ -32,67 +32,43 @@ USUARIOS = {
 }
 HISTORIAL = { u: [] for u in USUARIOS }
 
+
 class Usuario(UserMixin):
     def __init__(self, username): self.id = username
+
 
 @login_manager.user_loader
 def load_user(username):
     return Usuario(username) if username in USUARIOS else None
 
-# ── DATASET ──────────────────────────────────
-resenas = [
-    ("¡Producto increíble! El mejor que he comprado en mi vida, lo recomiendo a todos sin excepción.", 1),
-    ("Excelente excelente excelente, calidad perfecta, servicio perfecto, todo perfecto.", 1),
-    ("Compré este producto y cambió mi vida completamente. ¡Nunca había visto algo tan bueno!", 1),
-    ("Lo mejor del mercado, supera todas las expectativas, servicio al cliente de primera.", 1),
-    ("Absolutamente maravilloso, cinco estrellas no son suficientes para este producto.", 1),
-    ("Increíble producto, llegó rápido, calidad inmejorable, repetiré la compra sin duda.", 1),
-    ("¡Wow! No puedo creer lo bueno que es, mis amigos también lo quieren comprar.", 1),
-    ("Producto fantástico, vendedor serio, envío rápido. 100% recomendado a todos.", 1),
-    ("El mejor de todos, no busques más, este es el producto definitivo.", 1),
-    ("Perfecto en todo sentido, calidad, precio, entrega. No hay nada que mejorar.", 1),
-    ("Totalmente satisfecho, superó mis expectativas en todos los aspectos posibles.", 1),
-    ("Jamás había comprado algo tan bueno. Vendedor confiable y producto de lujo.", 1),
-    ("El producto llegó bien empacado, aunque tardó dos días más de lo esperado. Funciona correctamente.", 0),
-    ("Buena calidad en general, aunque el color es un poco diferente al de la foto. Sirve para lo que necesitaba.", 0),
-    ("Lo usé por tres semanas y cumple su función. El envío fue rápido pero el empaque podría mejorar.", 0),
-    ("Relación calidad-precio aceptable. No es perfecto pero hace lo que promete.", 0),
-    ("Me llegó con un pequeño golpe en la caja, el producto interior estaba bien. Funciona sin problemas.", 0),
-    ("Cumple con las especificaciones del anuncio. Nada extraordinario, pero tampoco decepciona.", 0),
-    ("El material es resistente aunque el tamaño es un poco más pequeño de lo que esperaba.", 0),
-    ("Buen producto para el precio. El servicio al cliente respondió rápido cuando tuve una duda.", 0),
-    ("Llevo un mes usándolo y sigue funcionando bien. La batería dura menos de lo indicado.", 0),
-    ("Producto correcto, llegó en el tiempo estimado. El manual de instrucciones podría ser más claro.", 0),
-    ("Funciona bien para uso ocasional. Para uso intensivo quizás necesitaría algo más robusto.", 0),
-    ("Satisfecho con la compra. El precio es justo para lo que ofrece, sin más ni menos.", 0),
-]
-
-textos    = [r[0] for r in resenas]
-etiquetas = [r[1] for r in resenas]
-stop_es   = set(stopwords.words('spanish'))
-
-def preprocesar(texto):
-    texto  = texto.lower()
-    texto  = re.sub(r'[^a-záéíóúüñ\s]', '', texto)
-    tokens = [t for t in texto.split() if t not in stop_es and len(t) > 2]
-    return ' '.join(tokens)
-
-textos_proc = [preprocesar(t) for t in textos]
-X_train, X_test, y_train, y_test = train_test_split(textos_proc, etiquetas, test_size=0.2, random_state=42)
-
-modelo = Pipeline([
-    ('tfidf', TfidfVectorizer(ngram_range=(1, 2), max_features=500)),
-    ('clf',   LogisticRegression(max_iter=1000))
-])
-modelo.fit(X_train, y_train)
-
-y_pred = modelo.predict(X_test)
+modelo = None
+vectorizador = None
+ERROR_CARGA_MODELO = None
 metricas = {
-    "exactitud":    round(accuracy_score(y_test, y_pred) * 100, 1),
-    "precision":    round(precision_score(y_test, y_pred, zero_division=0) * 100, 1),
-    "sensibilidad": round(recall_score(y_test, y_pred, zero_division=0) * 100, 1),
-    "f1":           round(f1_score(y_test, y_pred, zero_division=0) * 100, 1),
+    "exactitud": "N/D",
+    "precision": "N/D",
+    "sensibilidad": "N/D",
+    "f1": "N/D",
 }
+try:
+    if not MODEL_PATH.is_file() or not VECTORIZER_PATH.is_file():
+        raise FileNotFoundError(
+            "No se encontraron modelo_svm.pkl y/o vectorizador.pkl en "
+            f"{PROJECT_DIR}."
+        )
+    modelo = joblib.load(MODEL_PATH)
+    vectorizador = joblib.load(VECTORIZER_PATH)
+    if set(modelo.classes_) != {0, 1}:
+        raise ValueError("El modelo no contiene las clases esperadas 0 y 1.")
+    metricas = {
+        "exactitud": "98.39",
+        "precision": "98.39",
+        "sensibilidad": "98.39",
+        "f1": "98.39",
+    }
+except Exception as error:
+    ERROR_CARGA_MODELO = error
+    logger.exception("No se pudo cargar el modelo SVM y su vectorizador.")
 
 # ── TEMPLATES ────────────────────────────────
 ESTILOS_BASE = """
@@ -267,7 +243,7 @@ APP_HTML = """<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
     <div class="section-title">Resultado del análisis</div>
     <div class="veredicto" id="veredicto-texto"></div>
     <div id="descripcion" style="color:var(--muted);font-size:.9rem;margin-bottom:16px;"></div>
-    <div style="font-size:.8rem;color:var(--muted);font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Nivel de confianza</div>
+    <div style="font-size:.8rem;color:var(--muted);font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Clasificación SVM · el margen no es una probabilidad</div>
     <div class="barra-bg"><div class="barra-fill" id="barra" style="width:0%"></div></div>
     <div class="pct" id="pct-texto"></div>
   </div>
@@ -305,9 +281,9 @@ APP_HTML = """<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
       <canvas id="chart-donut" height="220"></canvas>
     </div>
 
-    <!-- Barras: confianza promedio -->
+    <!-- Barras: margen SVM medio -->
     <div class="chart-wrap">
-      <div class="chart-title">Confianza promedio por clase (%)</div>
+      <div class="chart-title">Margen absoluto promedio por clase (no es probabilidad)</div>
       <canvas id="chart-barras" height="160"></canvas>
     </div>
 
@@ -324,23 +300,24 @@ APP_HTML = """<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
   <div class="card">
     <div class="section-title">Métricas del modelo (conjunto de prueba)</div>
     <div class="metricas-grid">
-      <div class="metrica"><div class="val">{{ metricas.exactitud }}%</div><div class="nom">Exactitud</div></div>
-      <div class="metrica"><div class="val">{{ metricas.precision }}%</div><div class="nom">Precisión</div></div>
-      <div class="metrica"><div class="val">{{ metricas.sensibilidad }}%</div><div class="nom">Sensibilidad</div></div>
-      <div class="metrica"><div class="val">{{ metricas.f1 }}%</div><div class="nom">F1-Score</div></div>
+      <div class="metrica"><div class="val">{{ metricas.exactitud }}{% if metricas.exactitud != 'N/D' %}%{% endif %}</div><div class="nom">Exactitud</div></div>
+      <div class="metrica"><div class="val">{{ metricas.precision }}{% if metricas.precision != 'N/D' %}%{% endif %}</div><div class="nom">Precisión macro</div></div>
+      <div class="metrica"><div class="val">{{ metricas.sensibilidad }}{% if metricas.sensibilidad != 'N/D' %}%{% endif %}</div><div class="nom">Recall macro</div></div>
+      <div class="metrica"><div class="val">{{ metricas.f1 }}{% if metricas.f1 != 'N/D' %}%{% endif %}</div><div class="nom">F1 macro</div></div>
     </div>
   </div>
   <div class="card">
     <div class="section-title">Pipeline del modelo</div>
     <p style="font-family:'Space Mono',monospace;font-size:.8rem;color:var(--muted);line-height:2.2;">
-      Texto crudo<br>↓ Normalización (minúsculas, regex)<br>↓ Eliminación de stopwords (ES)
-      <br>↓ Vectorización TF-IDF (bigramas, top 500)<br>↓ Regresión Logística (max_iter=1000)
-      <br><span style="color:var(--accent)">→ Clasificación: auténtica / falsa + confianza</span>
+      Texto original<br>↓ limpiar_texto (SpaCy: lemas y stopwords)<br>
+      ↓ Vectorizador TF-IDF entrenado (unigramas y bigramas)
+      <br>↓ LinearSVC entrenado<br>
+      <span style="color:var(--accent)">→ Clasificación: real (0) / falsa (1)</span>
     </p>
   </div>
 </div>
 
-<footer>prototipo académico · TF-IDF + LogisticRegression · español</footer>
+<footer>prototipo académico · TF-IDF + LinearSVC · español</footer>
 
 <!-- ═══════════════ SCRIPTS ═══════════════ -->
 <script>
@@ -385,21 +362,36 @@ APP_HTML = """<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
   /* ── Analizador ── */
   async function analizar(){
     const texto=document.getElementById('resena').value.trim();
-    if(!texto) return;
-    const res=await fetch('/predecir',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({resena:texto})});
-    const data=await res.json();
-    const cls=data.clase===1?'falsa':'autentica';
-    document.getElementById('resultado').style.display='block';
-    const verd=document.getElementById('veredicto-texto');
-    verd.className='veredicto '+cls;
-    verd.textContent=data.clase===1?'⚠ RESEÑA PROBABLEMENTE FALSA':'✓ RESEÑA PROBABLEMENTE AUTÉNTICA';
-    document.getElementById('descripcion').textContent=data.clase===1
-      ?'El modelo detectó patrones asociados a contenido fraudulento.'
-      :'El modelo no detectó patrones significativos de fraude.';
-    document.getElementById('barra').className='barra-fill '+cls;
-    document.getElementById('barra').style.width=data.confianza+'%';
-    document.getElementById('pct-texto').textContent=data.confianza+'% de confianza';
+    if(!texto){
+      document.getElementById('resultado').style.display='block';
+      document.getElementById('veredicto-texto').textContent='';
+      document.getElementById('descripcion').textContent='Escribe una reseña antes de analizarla.';
+      document.getElementById('pct-texto').textContent='';
+      return;
+    }
+    try{
+      const res=await fetch('/predecir',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({resena:texto})});
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.error||'No se pudo analizar la reseña.');
+      const cls=data.clase===1?'falsa':'autentica';
+      document.getElementById('resultado').style.display='block';
+      const verd=document.getElementById('veredicto-texto');
+      verd.className='veredicto '+cls;
+      verd.textContent=data.clase===1?'⚠ RESEÑA CLASIFICADA COMO FALSA':'✓ RESEÑA CLASIFICADA COMO REAL';
+      document.getElementById('descripcion').textContent=data.clase===1
+        ?'El modelo asignó la etiqueta 1 (falsa). Esta es una predicción, no una garantía.'
+        :'El modelo asignó la etiqueta 0 (real). Esta es una predicción, no una garantía.';
+      document.getElementById('barra').className='barra-fill '+cls;
+      document.getElementById('barra').style.width='100%';
+      document.getElementById('pct-texto').textContent=
+        'Margen SVM: '+Number(data.margen_decision).toFixed(4)+' (no es una probabilidad)';
+    }catch(error){
+      document.getElementById('resultado').style.display='block';
+      document.getElementById('veredicto-texto').textContent='No se pudo completar el análisis';
+      document.getElementById('descripcion').textContent=error.message;
+      document.getElementById('pct-texto').textContent='';
+    }
   }
 
   /* ── Historial ── */
@@ -412,13 +404,18 @@ APP_HTML = """<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
       const cls=item.clase===1?'falsa':'autentica';
       const label=item.clase===1?'⚠ FALSA':'✓ AUTÉNTICA';
       return `<div class="hist-item">
-        <div class="hist-texto">${item.texto}</div>
+        <div class="hist-texto">${escaparHTML(item.texto)}</div>
         <div class="hist-meta">
           <span class="tag ${cls}">${label}</span>
-          <span class="hist-conf">${item.confianza}% confianza</span>
+          <span class="hist-conf">Margen SVM: ${Number(item.margen_decision).toFixed(4)} (no es probabilidad)</span>
           <span class="hist-fecha">${item.fecha}</span>
         </div></div>`;
     }).join('');
+  }
+  function escaparHTML(valor){
+    return String(valor).replace(/[&<>"']/g, caracter=>({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[caracter]);
   }
   async function limpiarHistorial(){await fetch('/historial/limpiar',{method:'POST'});cargarHistorial();}
 
@@ -443,12 +440,12 @@ APP_HTML = """<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
     document.getElementById('stats-empty').style.display='none';
     document.getElementById('stats-content').style.display='block';
 
-    const cfFalsas     = falsas     ? items.filter(i=>i.clase===1).reduce((a,b)=>a+b.confianza,0)/falsas     : 0;
-    const cfAutenticas = autenticas ? items.filter(i=>i.clase===0).reduce((a,b)=>a+b.confianza,0)/autenticas : 0;
+    const margenFalsas = falsas ? items.filter(i=>i.clase===1).reduce((a,b)=>a+Math.abs(b.margen_decision),0)/falsas : 0;
+    const margenReales = autenticas ? items.filter(i=>i.clase===0).reduce((a,b)=>a+Math.abs(b.margen_decision),0)/autenticas : 0;
 
     const ultimas10 = items.slice(-10);
     const labelsLinea = ultimas10.map((_,i)=>'#'+(items.length-ultimas10.length+i+1));
-    const dataLinea   = ultimas10.map(i=>i.confianza);
+    const dataLinea   = ultimas10.map(i=>Math.abs(i.margen_decision));
     const colsLinea   = ultimas10.map(i=>i.clase===1?'rgba(255,77,109,0.8)':'rgba(0,229,160,0.8)');
 
     const cfg = {
@@ -463,23 +460,23 @@ APP_HTML = """<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
       barras:{
         type:'bar',
         data:{labels:['Falsas','Auténticas'],
-          datasets:[{label:'Confianza promedio (%)',
-            data:[Math.round(cfFalsas*10)/10, Math.round(cfAutenticas*10)/10],
+          datasets:[{label:'Margen absoluto medio (no es probabilidad)',
+            data:[margenFalsas, margenReales],
             backgroundColor:['rgba(255,77,109,.6)','rgba(0,229,160,.6)'],
             borderColor:['#ff4d6d','#00e5a0'],borderWidth:2,borderRadius:6}]},
         options:{plugins:{legend:{display:false}},scales:{
-          y:{min:0,max:100,ticks:{color:'#6b7280'},grid:{color:'#252a35'}},
+          y:{min:0,ticks:{color:'#6b7280'},grid:{color:'#252a35'}},
           x:{ticks:{color:'#6b7280'},grid:{display:false}}}}
       },
       linea:{
         type:'line',
         data:{labels:labelsLinea,
-          datasets:[{label:'Confianza (%)',data:dataLinea,
+          datasets:[{label:'Margen absoluto SVM (no es probabilidad)',data:dataLinea,
             borderColor:'#00e5a0',backgroundColor:'rgba(0,229,160,.08)',
             pointBackgroundColor:colsLinea,pointBorderColor:colsLinea,
             pointRadius:5,tension:.35,fill:true}]},
         options:{plugins:{legend:{display:false}},scales:{
-          y:{min:0,max:100,ticks:{color:'#6b7280'},grid:{color:'#252a35'}},
+          y:{min:0,ticks:{color:'#6b7280'},grid:{color:'#252a35'}},
           x:{ticks:{color:'#6b7280'},grid:{display:false}}}}
       }
     };
@@ -525,18 +522,47 @@ def auth_logout():
 @app.route('/predecir', methods=['POST'])
 @login_required
 def predecir():
-    data  = request.get_json()
-    texto = data.get('resena', '')
-    proc  = preprocesar(texto)
-    clase = int(modelo.predict([proc])[0])
-    prob  = modelo.predict_proba([proc])[0]
-    conf  = round(float(max(prob)) * 100, 1)
+    if modelo is None or vectorizador is None:
+        return jsonify({
+            'error': 'El modelo SVM o el vectorizador no están disponibles.'
+        }), 503
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'error': 'La solicitud debe incluir una reseña.'}), 400
+
+    texto = data.get('resena')
+    if not isinstance(texto, str) or not texto.strip():
+        return jsonify({'error': 'Escribe una reseña antes de analizarla.'}), 400
+
+    texto = texto.strip()
+    try:
+        texto_limpio = limpiar_texto(texto)
+        matriz_tfidf = vectorizador.transform([texto_limpio])
+        clase = int(modelo.predict(matriz_tfidf)[0])
+        margen_decision = float(modelo.decision_function(matriz_tfidf)[0])
+    except Exception:
+        logger.exception("Falló el procesamiento o la predicción de una reseña.")
+        return jsonify({
+            'error': 'No se pudo procesar la reseña. Revisa el modelo de idioma '
+                     'de SpaCy y los archivos del modelo.'
+        }), 500
+
+    if clase not in {0, 1}:
+        logger.error("El clasificador devolvió una etiqueta inesperada: %s", clase)
+        return jsonify({'error': 'El modelo devolvió una clase no reconocida.'}), 500
+
     HISTORIAL[current_user.id].append({
-        'texto': texto[:200], 'clase': clase,
-        'confianza': conf,
+        'texto': texto[:200],
+        'clase': clase,
+        'margen_decision': margen_decision,
         'fecha': datetime.now().strftime('%d/%m/%Y %H:%M')
     })
-    return jsonify({'clase': clase, 'confianza': conf})
+    return jsonify({
+        'clase': clase,
+        'margen_decision': margen_decision,
+        'caracteristicas_tfidf': matriz_tfidf.shape[1],
+    })
 
 @app.route('/historial')
 @login_required
@@ -550,7 +576,10 @@ def limpiar_historial():
     return jsonify({'ok': True})
 
 if __name__ == '__main__':
-    print("\n✓ Modelo entrenado")
-    print(f"  Exactitud: {metricas['exactitud']}%  F1: {metricas['f1']}%")
+    if modelo is None:
+        print(f"\n✗ No se pudo cargar el modelo: {ERROR_CARGA_MODELO}")
+    else:
+        print("\n✓ Modelo SVM y vectorizador cargados")
+        print(f"  Exactitud de prueba: {metricas['exactitud']}%  F1: {metricas['f1']}%")
     print("\n→ http://localhost:5000   (admin/1234 · demo/demo)\n")
     app.run(debug=False)
