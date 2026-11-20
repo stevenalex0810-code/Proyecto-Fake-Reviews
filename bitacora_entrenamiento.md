@@ -72,3 +72,18 @@ Con apenas 5.000 datos, el modelo SVM demuestra una ligera superioridad en la ex
 La evolución iterativa del corpus demostró ser la clave del éxito. En el Experimento 1 (muestra pequeña), el modelo sufrió de subajuste (45% de exactitud). En el Experimento 2 (dataset sintético), el modelo se sobreajustó a patrones muy específicos (100% exactitud). Finalmente, en el Experimento 3, al introducir variabilidad humana mediante la traducción del dataset de Ott (2011), el modelo alcanzó una excelente capacidad de generalización, estabilizándose en un **98.33% de exactitud con SVM**. 
 
 Por lo tanto, se exportan oficialmente los archivos `modelo_svm.pkl` y `vectorizador.pkl` de este tercer experimento para ser desplegados en la interfaz gráfica del prototipo final.
+
+---
+
+## Regeneración de artefactos para Python 3.10
+**Fecha:** 22/10/2026
+**Motivo:** Los artefactos anteriores fueron serializados con scikit-learn 1.9.0, versión que no admite Python 3.10. Para mantener el entorno del proyecto en Python 3.10, se regeneraron el SVM y el vectorizador con scikit-learn 1.7.2.
+
+Se conservó el flujo de `modelos.py`: corpus `dataset/dataset_tesis_definitivo.csv` (9.600 reseñas), limpieza mediante `limpiar_texto`, TF-IDF con unigramas y bigramas, partición 80/20 con `random_state=42` y `LinearSVC(random_state=42, dual=False)`.
+
+**Resultados en el conjunto de prueba de esta regeneración:**
+*   Exactitud: 98.39%
+*   Precisión (Macro): 98.39%
+*   F1-Score (Macro): 98.39%
+
+Los archivos `modelo_svm.pkl` y `vectorizador.pkl` actuales corresponden a esta regeneración compatible con Python 3.10. Estas métricas corresponden al conjunto de prueba del entrenamiento y no son una probabilidad ni una garantía para una reseña individual.

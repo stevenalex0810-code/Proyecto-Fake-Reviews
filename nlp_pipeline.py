@@ -4,12 +4,12 @@ import spacy
 import re
 
 # 1. CARGAR EL MODELO DE SPACY EN ESPAÑOL
+nlp = None
+_nlp_load_error = None
 try:
     nlp = spacy.load("es_core_news_sm")
-    print("Modelo SpaCy (Español) cargado correctamente.")
-except Exception as e:
-    print("Error cargando SpaCy. Asegúrate de haber instalado el modelo de español ejecutando:")
-    print("python -m spacy download es_core_news_sm")
+except OSError as error:
+    _nlp_load_error = error
 
 # ==========================================
 # SECCIÓN A: EXPLORACIÓN DE DATOS (EDA)
@@ -50,6 +50,11 @@ def limpiar_texto(texto):
     """
     if not isinstance(texto, str):
         return ""
+    if nlp is None:
+        raise RuntimeError(
+            "No se pudo cargar el modelo de español de SpaCy. "
+            "Instálalo con: python -m spacy download es_core_news_sm"
+        ) from _nlp_load_error
         
     # 1. Minúsculas y limpieza básica (dejar solo letras)
     texto = texto.lower()
